@@ -66,6 +66,7 @@ data AMT a
   = Empty
   | Leaf !Key !a
   | Inner !Prefix !Mask !Bitmap !(A.Array (AMT a))
+  | Full !Prefix !Mask !(A.Array (AMT a))
   deriving Eq
 
 
@@ -78,6 +79,7 @@ instance NFData a => NFData (AMT a) where
     Empty -> ()
     Leaf k v -> rnf v
     Inner p m bm cs -> rnf p `seq` rnf m `seq` rnf bm `seq` rnf cs
+    Full p m cs -> rnf p `seq` rnf m `seq` rnf cs
 
 
 -- * Bit twiddling
@@ -205,6 +207,9 @@ lookup !k = go
       Inner p m bm cs
         | Right i <- computeChildIndex k p m bm
         -> go (A.index cs i)
+      Full p m cs
+        | let i = maskedBitsUnshifted p m
+        -> go (A.index cs i)
       _ -> Nothing
 
 insert :: Key -> a -> AMT a -> AMT a
@@ -218,8 +223,13 @@ insert !k v t = case t of
       Right si -> Inner p' m' bm' (A.updateWith' cs' si (insert k v))
       Left PrefixDiverges -> link k (Leaf k v) p' t
       Left (NotAChild i)
+        | bm' .|. bit i == complement 0
+        , let si = maskedBitsUnshifted k m'
+        -> Full p' m' (A.insert cs' si (Leaf k v))
         | let si = sparseIndex bm' i
         -> Inner p' m' (bm' .|. bit i) (A.insert cs' si (Leaf k v))
+  Full p' m' cs' ->
+    Full p' m' (A.updateWith' cs' (maskedBitsUnshifted k m') (insert k v))
 
 link :: Prefix -> AMT a -> Prefix -> AMT a -> AMT a
 link p1 t1 p2 t2 = Inner p m (bit i1 .|. bit i2) (A.fromList 2 children)
