@@ -5,19 +5,18 @@
 
 module Main (main) where
 
-import           Common
 import           Control.Arrow
 import           Control.DeepSeq
 import           Control.Monad
 import           Criterion.Main
 import           Criterion.Types
+import qualified Data.AMT
 import qualified Data.HashMap.Lazy
 import qualified Data.HashMap.Strict
 import qualified Data.IntMap.Lazy
 import qualified Data.IntMap.Strict
 import qualified Data.Map.Lazy
 import qualified Data.Map.Strict
-import           Data.Maybe          (isJust)
 import           System.Directory
 import           System.Random
 
@@ -69,8 +68,8 @@ main = do
                Data.IntMap.Lazy.lookup
            , Lookup
                "Data.AMT"
-               Data.AMT.fromList
-               Data.AMT.lookup
+               (Data.AMT.fromList . map (first fromIntegral))
+               (Data.AMT.lookup . fromIntegral)
            ])
     ]
   where
@@ -80,7 +79,7 @@ main = do
                force (zip (randoms (mkStdGen 0) :: [Int]) [1 :: Int .. i])
          in pure elems)
         (\_ -> bench (title ++ ":" ++ show i) $ nf func i)
-      | i <- [10, 100, 1000, 10000]
+      | i <- [10, 100, 1000, 10000, 100000, 1000000]
       , InsertInt title func <- funcs
       ]
     lookupRandomized funcs =
@@ -135,7 +134,7 @@ insertIntMapStrict n0 = go n0 mempty
     go n !acc = go (n - 1) (Data.IntMap.Strict.insert n n acc)
 
 insertAMT :: Int -> Data.AMT.AMT Int
-insertAMT n0 = go n0 mempty
+insertAMT n0 = go n0 Data.AMT.empty
   where
     go 0 acc  = acc
-    go n !acc = go (n - 1) (Data.AMT.insert n n acc)
+    go n !acc = go (n - 1) (Data.AMT.insert (fromIntegral n) n acc)

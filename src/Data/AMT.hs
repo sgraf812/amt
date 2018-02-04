@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns          #-}
 {-# LANGUAGE CPP                   #-}
 {-# LANGUAGE DeriveDataTypeable    #-}
 {-# LANGUAGE LambdaCase            #-}
@@ -9,7 +10,7 @@
 {-# LANGUAGE RoleAnnotations       #-}
 {-# LANGUAGE TypeFamilies          #-}
 #endif
-{-# OPTIONS_GHC -fno-full-laziness -funbox-strict-fields #-}
+{-# OPTIONS_GHC -fno-full-laziness -funbox-strict-fields -ddump-simpl -dsuppress-all #-}
 
 module Data.AMT where
 
@@ -63,13 +64,20 @@ type Bitmap = Word64
 
 data AMT a
   = Empty
-  | Leaf !Key a
+  | Leaf !Key !a
   | Inner !Prefix !Mask !Bitmap !(A.Array (AMT a))
   deriving Eq
 
 
 instance Show a => Show (AMT a) where
   show amt = "toList " ++ show (toList amt)
+
+
+instance NFData a => NFData (AMT a) where
+  rnf = \case
+    Empty -> ()
+    Leaf k v -> rnf v
+    Inner p m bm cs -> rnf p `seq` rnf m `seq` rnf bm `seq` rnf cs
 
 
 -- * Bit twiddling
@@ -188,17 +196,19 @@ empty :: AMT a
 empty = Empty
 
 lookup :: Key -> AMT a -> Maybe a
-lookup !k = \case
-  Leaf k' v
-    | k' == k
-    -> Just v
-  Inner p m bm cs
-    | Right i <- computeChildIndex k p m bm
-    -> lookup k (A.index cs i)
-  _ -> Nothing
+lookup !k = go
+  where
+    go = \case
+      Leaf k' v
+        | k' == k
+        -> Just v
+      Inner p m bm cs
+        | Right i <- computeChildIndex k p m bm
+        -> go (A.index cs i)
+      _ -> Nothing
 
 insert :: Key -> a -> AMT a -> AMT a
-insert k v t = case t of
+insert !k v t = case t of
   Empty -> Leaf k v
   Leaf k' v'
     | k' == k -> Leaf k v
@@ -218,6 +228,7 @@ link p1 t1 p2 t2 = Inner p m (bit i1 .|. bit i2) (A.fromList 2 children)
     i1 = maskedBitsUnshifted p1 m
     i2 = maskedBitsUnshifted p2 m
     children = if i1 < i2 then [t1, t2] else [t2, t1]
+{-# INLINE link #-}
 
 data MismatchReason
   = PrefixDiverges
@@ -247,6 +258,7 @@ computeChildIndex k p m bm = runExcept $ do
   let i = maskedBitsUnshifted k m
   throwUnlessM (NotAChild i) (testBit bm i)
   pure (sparseIndex bm i)
+{-# INLINE computeChildIndex #-}
 
 toList :: AMT a -> [(Key, a)]
 toList = \case
