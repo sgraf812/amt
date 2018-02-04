@@ -87,25 +87,15 @@ instance NFData a => NFData (AMT a) where
 bitsPerSubKey :: Int
 bitsPerSubKey = 6
 
--- | Does the key @i@ differ from the prefix @p@ before getting to
--- the switching bit @m@?
-nomatch :: Key -> Prefix -> Mask -> Bool
-nomatch i p m = mask i m /= p
-{-# INLINE nomatch #-}
-
 -- | Does the key @i@ match the prefix @p@ (up to but not including
--- bit @m@)?
+-- Mask @m@)?
 match :: Key -> Prefix -> Mask -> Bool
-match i p m = mask i m == p
-{-# INLINE match #-}
-
--- | The prefix of key @i@ up to (but not including) the switching
--- bit @m@.
-mask :: Key -> Mask -> Prefix
-mask i m = i .&. (complement (b-1) `xor` b)
+match i p m = clz == 0 || shift i == shift p
   where
-    b = isolateHighestBit m
-{-# INLINE mask #-}
+    clz = countLeadingZeros m
+    -- shifting right by >= `finiteBitSize m` is undefined
+    shift w = unsafeShiftR w (finiteBitSize m - clz)
+{-# INLINE match #-}
 
 -- |
 -- >>> longestCommonPrefix 0 1
@@ -134,19 +124,7 @@ longestCommonPrefix p1 p2 = (lcp, mask)
     mask = unsafeShiftL mask0 shift
     -- We can get the lcp by masking with all bits above the mask
     lcp = p1 .&. complement (bit (shift + bitsPerSubKey) - 1)
-
-
--- | Clear all other bits other than the most significant.
--- Effectively floors to the next power of 2.
--- Expects that at least one bit is set.
---
--- >>> isolateHighestBit 15
--- 8
--- >>> isolateHighestBit 35
--- 32
-isolateHighestBit :: Word64 -> Word64
-isolateHighestBit = bit . log2
-{-# INLINE isolateHighestBit #-}
+{-# INLINE longestCommonPrefix #-}
 
 -- | Given a 'Word64' \(w\) this function computes an 'Int' \(b\) such that
 -- \(2^b <= w < 2^(b+1)\). Note the exceptional case for @log2 0@.
