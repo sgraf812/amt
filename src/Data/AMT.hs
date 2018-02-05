@@ -193,7 +193,7 @@ lookup !k = go
 insert :: Key -> a -> AMT a -> AMT a
 insert !k v t = case t of
   Empty -> Leaf k v
-  Leaf k' v'
+  Leaf k' _
     | k' == k -> Leaf k v
     | otherwise -> link k (Leaf k v) k' t
   Inner p' m' bm' cs' ->
@@ -225,7 +225,7 @@ data MismatchReason
 
 throwUnlessM :: e -> Bool -> Except e ()
 throwUnlessM ex False = throwE ex
-throwUnlessM ex _     = pure ()
+throwUnlessM _ _      = pure ()
 
 -- |
 -- >>> computeChildIndex 0b100 0b000 0b011 0

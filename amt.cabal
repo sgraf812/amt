@@ -20,7 +20,7 @@ source-repository head
 library
   hs-source-dirs:      src
   exposed-modules:     Data.AMT
-  ghc-options:         -fllvm
+  ghc-options:         -fllvm -optlc-mcpu=ivybridge
   other-modules:       Data.HashMap.Array
   build-depends:       base >= 4.7 && < 5
                      , deepseq 
