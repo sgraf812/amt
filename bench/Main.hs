@@ -67,6 +67,10 @@ main = do
                Data.IntMap.Lazy.fromList
                Data.IntMap.Lazy.lookup
            , Lookup
+               "Data.IntMap.Strict"
+               Data.IntMap.Strict.fromList
+               Data.IntMap.Strict.lookup
+           , Lookup
                "Data.AMT"
                (Data.AMT.fromList . map (first fromIntegral))
                (Data.AMT.lookup . fromIntegral)

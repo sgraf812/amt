@@ -16,9 +16,7 @@ cabal.sandbox.config
 *.hp
 *.ps
 *.eventlog
-.stack-work/
+.stack-work
 cabal.project.local
 .HTF/
-# cabal-toolkit files
-.lbi.buildinfo
-.pkg_descr.buildinfo
+*.csv
