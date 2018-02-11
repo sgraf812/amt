@@ -25,6 +25,7 @@ module Data.HashMap.Array
     , update
     , updateWith'
     , unsafeUpdateM
+    , unsafeUpdateWithM'
     , insert
     , insertM
     , delete
@@ -308,6 +309,15 @@ unsafeUpdateM ary idx b =
            _ <- unsafeFreeze mary
            return ()
 {-# INLINE unsafeUpdateM #-}
+
+-- | /O(n)/ Update the element at the given position in this array inplace, by
+-- applying a function to it.  Evaluates the element to WHNF before
+-- inserting it into the array.
+unsafeUpdateWithM' :: Array e -> Int -> (e -> ST s e) -> ST s ()
+unsafeUpdateWithM' ary idx f = do
+    e <- f (index ary idx)
+    unsafeUpdateM ary idx $! e
+{-# INLINE unsafeUpdateWithM' #-}
 
 foldl' :: (b -> a -> b) -> b -> Array a -> b
 foldl' f = \ z0 ary0 -> go ary0 (length ary0) 0 z0

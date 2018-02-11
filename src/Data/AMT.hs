@@ -24,7 +24,8 @@ import           Data.Word                  (Word)
 import           Data.Semigroup             (Semigroup ((<>)))
 #endif
 import           Control.DeepSeq            (NFData (rnf))
-import           Control.Monad.ST           (ST)
+import           Control.Monad              (foldM)
+import           Control.Monad.ST           (ST, runST)
 import           Control.Monad.Trans.Except (Except, runExcept, throwE)
 import           Data.Bits
 import           Data.Data                  hiding (Typeable)
@@ -170,6 +171,36 @@ sparseIndex :: Bitmap -> Int -> Int
 sparseIndex bm i = popCount (bm .&. (bit i - 1))
 {-# INLINE sparseIndex #-}
 
+data MismatchReason
+  = PrefixDiverges
+  | NotAChild Int
+  deriving (Eq, Show)
+
+throwUnlessM :: e -> Bool -> Except e ()
+throwUnlessM ex False = throwE ex
+throwUnlessM _ _      = pure ()
+
+-- |
+-- >>> computeChildIndex 0b100 0b000 0b011 0
+-- Left PrefixDiverges
+-- >>> computeChildIndex 0b000 0b100 0b011 0
+-- Left PrefixDiverges
+-- >>> computeChildIndex 0b000 0b000 0b011 0b0101
+-- Right 0
+-- >>> computeChildIndex 0b001 0b000 0b011 0b0101
+-- Left (NotAChild 1)
+-- >>> computeChildIndex 0b010 0b000 0b011 0b0101
+-- Right 1
+-- >>> computeChildIndex 0b011 0b000 0b011 0b0101
+-- Left (NotAChild 3)
+computeChildIndex :: Key -> Prefix -> Mask -> Bitmap -> Either MismatchReason Int
+computeChildIndex k p m bm = runExcept $ do
+  throwUnlessM PrefixDiverges (match k p m)
+  let i = maskedBitsUnshifted k m
+  throwUnlessM (NotAChild i) (testBit bm i)
+  pure (sparseIndex bm i)
+{-# INLINE computeChildIndex #-}
+
 -- * Operations
 
 empty :: AMT a
@@ -218,35 +249,31 @@ link p1 t1 p2 t2 = Inner p m (bit i1 .|. bit i2) (A.fromList 2 children)
     children = if i1 < i2 then [t1, t2] else [t2, t1]
 {-# INLINE link #-}
 
-data MismatchReason
-  = PrefixDiverges
-  | NotAChild Int
-  deriving (Eq, Show)
-
-throwUnlessM :: e -> Bool -> Except e ()
-throwUnlessM ex False = throwE ex
-throwUnlessM _ _      = pure ()
-
--- |
--- >>> computeChildIndex 0b100 0b000 0b011 0
--- Left PrefixDiverges
--- >>> computeChildIndex 0b000 0b100 0b011 0
--- Left PrefixDiverges
--- >>> computeChildIndex 0b000 0b000 0b011 0b0101
--- Right 0
--- >>> computeChildIndex 0b001 0b000 0b011 0b0101
--- Left (NotAChild 1)
--- >>> computeChildIndex 0b010 0b000 0b011 0b0101
--- Right 1
--- >>> computeChildIndex 0b011 0b000 0b011 0b0101
--- Left (NotAChild 3)
-computeChildIndex :: Key -> Prefix -> Mask -> Bitmap -> Either MismatchReason Int
-computeChildIndex k p m bm = runExcept $ do
-  throwUnlessM PrefixDiverges (match k p m)
-  let i = maskedBitsUnshifted k m
-  throwUnlessM (NotAChild i) (testBit bm i)
-  pure (sparseIndex bm i)
-{-# INLINE computeChildIndex #-}
+insertInplace :: Key -> a -> AMT a -> ST s (AMT a)
+insertInplace !k v t = case t of
+  Empty -> return (Leaf k v)
+  Leaf k' _
+    | k' == k -> return (Leaf k v)
+    | otherwise -> return (link k (Leaf k v) k' t)
+  Inner p' m' bm' cs' ->
+    case computeChildIndex k p' m' bm' of
+      Right si -> do
+        A.unsafeUpdateWithM' cs' si (insertInplace k v)
+        return t
+      Left PrefixDiverges -> return (link k (Leaf k v) p' t)
+      Left (NotAChild i)
+        | bm' .|. bit i == complement 0
+        , let si = maskedBitsUnshifted k m'
+        -> do
+          cs <- A.insertM cs' si (Leaf k v)
+          return (Full p' m' cs)
+        | let si = sparseIndex bm' i
+        -> do
+          cs <- A.insertM cs' si (Leaf k v)
+          return (Inner p' m' (bm' .|. bit i) cs)
+  Full p' m' cs' -> do
+    A.unsafeUpdateWithM' cs' (maskedBitsUnshifted k m') (insertInplace k v)
+    return t
 
 toList :: AMT a -> [(Key, a)]
 toList = \case
@@ -255,7 +282,7 @@ toList = \case
   Inner _ _ _ cs -> concatMap toList (A.toList cs)
 
 fromList :: [(Key, a)] -> AMT a
-fromList = Foldable.foldr (uncurry insert) empty
+fromList xs = runST (foldM (flip (uncurry insertInplace)) empty xs)
 
 showHex :: Word64 -> String
 showHex = flip Numeric.showHex ""

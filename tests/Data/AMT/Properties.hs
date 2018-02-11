@@ -43,3 +43,8 @@ spec =
       it "overwrites an entry" $
         property $ \(m :: AMT Int) k v ->
           lookup k (insert k v m) `shouldBe` Just v
+
+    describe "fromList" $
+      it "foldl (flip (uncurry insert)) empty" $
+        property $ \(xs :: [(Word64, Int)]) ->
+          fromList xs == foldl (flip (uncurry insert)) empty xs
